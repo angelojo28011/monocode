@@ -56,6 +56,7 @@ import type { SessionFolderTarget } from "../../sessions/model/sessionFolders";
 import type { Worktree } from "../../source-control/model/worktrees";
 
 type Shared = {
+  suppressBackground?: boolean;
   workspaceSwitchingSessionId?: string;
   visible: boolean;
   sessions: Session[];
@@ -202,6 +203,7 @@ type PaneDrag = {
 const DRAG_THRESHOLD = 5;
 
 function PaneTreeComponent({
+  suppressBackground,
   visible,
   layout,
   sessions,
@@ -495,6 +497,7 @@ function PaneTreeComponent({
                 />
               ) : session ? (
                 <SessionPane
+                  suppressBackground={suppressBackground}
                   session={session}
                   workspaceSwitchingSessionId={workspaceSwitchingSessionId}
                   reviewUndoLocked={sessions.some(

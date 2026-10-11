@@ -5,6 +5,7 @@ import {
   DashboardSquare,
   Inbox,
   PanelLeft,
+  PanelRight,
   PanelRightToggle,
   Settings,
   StickyNote,
@@ -126,6 +127,8 @@ type Props = {
   onPinFile?: (fileId: string) => void;
   recents?: RecentProject[];
   onSelectProject?: (path: string) => void;
+  rightPanelOpen?: boolean;
+  onToggleRightPanel?: () => void;
 };
 
 function sessionMeta(tab: Tab): string {
@@ -646,6 +649,8 @@ function TitleBarComponent({
   onPinFile,
   recents = [],
   onSelectProject,
+  rightPanelOpen,
+  onToggleRightPanel,
 }: Props) {
   const tabIds = tabs.map((tab) => tab.id);
   const { displayed, setTabNode, finishMotion } = useTabCloseMotion(tabs);
@@ -889,6 +894,7 @@ function TitleBarComponent({
     Boolean(onOpenInbox || onOpenNotes || onOpenSettings);
   const trailingControls =
     showTrailingActions ||
+    Boolean(onToggleRightPanel) ||
     (mono && onShowMonoDetails) ||
     (!IS_MAC && !hideWindowControls) ? (
       <div className="flex h-full shrink-0 items-stretch">
@@ -916,6 +922,17 @@ function TitleBarComponent({
                 <Settings className="size-3.5" strokeWidth={1.75} />
               </IconButton>
             ) : null}
+          </div>
+        ) : null}
+        {onToggleRightPanel ? (
+          <div className="flex items-center px-1">
+            <IconButton
+              label="Toggle Right Panel"
+              active={rightPanelOpen}
+              onClick={onToggleRightPanel}
+            >
+              <PanelRight className="size-3.5" strokeWidth={1.75} />
+            </IconButton>
           </div>
         ) : null}
         {!IS_MAC && !hideWindowControls ? <WindowControls /> : null}

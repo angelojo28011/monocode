@@ -4,6 +4,7 @@ mod account_identity;
 mod artifacts;
 mod automations;
 mod azure_devops;
+mod browser_surface;
 mod chat_background;
 mod checkpoint;
 mod codex_mono_store;
@@ -611,6 +612,14 @@ pub fn run() {
             project_logo::save_project_logo,
             project_logo::remove_project_logo,
             project_logo::forget_logo_file,
+            browser_surface::browser_sync_bounds,
+            browser_surface::browser_navigate,
+            browser_surface::browser_hide,
+            browser_surface::browser_show,
+            browser_surface::browser_reload,
+            browser_surface::browser_go_back,
+            browser_surface::browser_go_forward,
+            browser_surface::browser_close,
         ])
         .build(tauri::generate_context!())
         .expect("error while building MonoCode");

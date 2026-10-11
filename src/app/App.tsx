@@ -79,9 +79,11 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
 } from "react";
 import { useStableValue } from "../shared/hooks/useStableValue";
 import { Sidebar } from "./shell/Sidebar";
@@ -140,8 +142,19 @@ import {
   loadSessionSidebarOpen,
   saveProjectRailOpen,
   saveSessionSidebarOpen,
+  loadChatBackgroundPath,
+  loadNewThreadBackgroundEffect,
+  subscribeChatBackgroundPath,
   type SidebarTabId,
 } from "../features/settings/model/appearance";
+import {
+  loadProjectChatBackgroundSettings,
+  projectChatBackgroundImageRevision,
+  subscribeProjectChatBackground,
+} from "../features/projects/model/projectChatBackground";
+import { useProjectBackgroundEffect } from "../features/projects/ui/useProjectBackgroundEffect";
+import { GradientBlurBackground } from "../features/settings/ui/GradientBlurBackground";
+import { projectKey } from "../shared/lib/paths";
 import {
   loadProjectSidebarTab,
   saveProjectSidebarTab,
@@ -649,6 +662,11 @@ import { PaneTree } from "../features/workspace/ui/PaneTree";
 import { SessionPane } from "../features/sessions/ui/SessionPane";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
 import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
+import {
+  createInitialRightPanelState,
+  rightPanelReducer,
+} from "../features/surfaces/model/rightPanel";
+import { RightPanelContainer } from "../features/surfaces/ui/RightPanelContainer";
 import { lazySurface } from "../shared/ui/lazySurface";
 import { preloadNavigationWhenIdle } from "./model/preloadNavigation";
 import { requestTranscriptJump } from "../features/sessions/model/transcriptJump";
@@ -1091,6 +1109,11 @@ function Workspace({
     () => windowTransfer?.activeTabId ?? resumed?.activeTabId ?? seed.tab.id,
   );
   const [monoViewId, setMonoViewId] = useState<string | null>(null);
+  const [rightPanelState, dispatchRightPanel] = useReducer(
+    rightPanelReducer,
+    undefined,
+    createInitialRightPanelState,
+  );
   const [monoDetailsOpen, setMonoDetailsOpen] = useState(false);
   const [monoArtifact, setMonoArtifact] = useState<{
     sessionId: string;
@@ -12300,7 +12323,56 @@ function Workspace({
     create: () => createMono().id,
   });
 
+  // Fondo de chat continuo y sincronizado a nivel de workspace
+  const globalBackgroundPath = useSyncExternalStore(
+    subscribeChatBackgroundPath,
+    loadChatBackgroundPath,
+    loadChatBackgroundPath,
+  );
+  const globalBackgroundEffect = useSyncExternalStore(
+    subscribeChatBackgroundPath,
+    loadNewThreadBackgroundEffect,
+    loadNewThreadBackgroundEffect,
+  );
+
+  useSyncExternalStore(
+    subscribeProjectChatBackground,
+    projectChatBackgroundImageRevision,
+    projectChatBackgroundImageRevision,
+  );
+  const projectBackground = sidebarCwd
+    ? loadProjectChatBackgroundSettings(projectKey(sidebarCwd))
+    : null;
+  const projectBackgroundUrl = useProjectBackgroundEffect(
+    projectBackground?.path ?? null,
+    projectBackground?.effect ?? "none",
+    projectChatBackgroundImageRevision(),
+  );
+
+  const projectBackgroundStyle = projectBackground
+    ? ({
+        "--chat-background-image": projectBackgroundUrl
+          ? `url(${JSON.stringify(projectBackgroundUrl)})`
+          : "none",
+        "--chat-background-empty-opacity": String(
+          projectBackground.emptyOpacity,
+        ),
+        "--chat-background-session-opacity": String(
+          projectBackground.sessionOpacity,
+        ),
+      } as CSSProperties)
+    : undefined;
+
+  const showGradientBlur =
+    projectBackground?.effect === "gradient-blur" ||
+    (!projectBackground &&
+      globalBackgroundPath &&
+      globalBackgroundEffect === "gradient-blur");
+
+  const hasContinuousBackground = Boolean(projectBackgroundUrl || globalBackgroundPath);
+
   const sessionPaneProps = {
+    suppressBackground: hasContinuousBackground,
     workspaceSwitchingSessionId: workspaceNavigation.pending
       ? active?.id
       : undefined,
@@ -12554,8 +12626,38 @@ function Workspace({
       onPinFile={onPinFile}
       recents={recents}
       onSelectProject={onSelectProject}
+      rightPanelOpen={rightPanelState.isOpen}
+      onToggleRightPanel={() => dispatchRightPanel({ type: "toggle_open" })}
     />
   );
+
+  const activeSessionLinkedWorkItem = useMemo(() => {
+    if (!activeSessionId) return null;
+    return sessions.find((s) => s.id === activeSessionId)?.linkedWorkItem ?? null;
+  }, [activeSessionId, sessions]);
+
+  const handleSetSessionLinkedWorkItem = useCallback(
+    (item: LinkedWorkItem | undefined) => {
+      if (activeSessionId) {
+        onSetHistorySessionLinkedWorkItem(activeSessionId, item);
+      }
+    },
+    [activeSessionId, onSetHistorySessionLinkedWorkItem],
+  );
+
+  const workspaceLinkedSessions = useMemo(() => {
+    return sessions
+      .filter(
+        (s) =>
+          s.linkedWorkItem &&
+          (sameProjectPath(s.cwd, sidebarCwd) || !sidebarCwd),
+      )
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        linkedWorkItem: s.linkedWorkItem!,
+      }));
+  }, [sessions, sidebarCwd]);
 
   return (
     <OrchestrationActions.Provider value={orchestrationActions}>
@@ -12789,10 +12891,25 @@ function Workspace({
                           );
                         })}
                         <div
-                          className="relative flex min-h-0 min-w-0 flex-row"
+                          className="relative flex min-h-0 min-w-0 flex-row overflow-hidden"
                           style={{ gridArea: "main" }}
                         >
-                          <div className="relative min-h-0 min-w-0 flex-1">
+                          {/* Capa de fondo continuo unificada (Chat + Right Panel) */}
+                          {hasContinuousBackground ? (
+                            <div
+                              aria-hidden
+                              data-project-chat-background={!!projectBackground}
+                              data-project-background-effect={projectBackground?.effect}
+                              data-project-background-scope={projectBackground?.scope}
+                              data-session-empty={!active || active.blocks.length === 0}
+                              style={projectBackgroundStyle}
+                              className="chat-pane-background pointer-events-none absolute inset-0 z-0 h-full w-full"
+                            >
+                              {showGradientBlur ? <GradientBlurBackground /> : null}
+                            </div>
+                          ) : null}
+
+                          <div className="relative z-10 min-h-0 min-w-0 flex-1">
                             {tabs.map((tab) => (
                               <div
                                 key={tab.id}
@@ -12910,8 +13027,46 @@ function Workspace({
                                 );
                               })}
                           </div>
+                          {rightPanelState.isOpen &&
+                          rightPanelState.mode === "dock" &&
+                          !monoCovers ? (
+                            <RightPanelContainer
+                              state={rightPanelState}
+                              dispatch={dispatchRightPanel}
+                              detectedPort={3000}
+                              cwd={sidebarCwd}
+                              activeSessionId={activeSessionId}
+                              activeSessionLinkedWorkItem={activeSessionLinkedWorkItem}
+                              onSetLinkedWorkItem={handleSetSessionLinkedWorkItem}
+                              linkedSessions={workspaceLinkedSessions}
+                              onOpenSession={onSelectHistorySession}
+                              onOpenProjectTerminal={onToggleProjectTerminal}
+                              onOpenProjectDiff={onToggleChanges}
+                              onOpenProjectFiles={onGoToFile}
+                              onOpenFile={onOpenFile}
+                            />
+                          ) : null}
                         </div>
                       </div>
+                      {rightPanelState.isOpen &&
+                      rightPanelState.mode === "fullscreen" &&
+                      !monoCovers ? (
+                        <RightPanelContainer
+                          state={rightPanelState}
+                          dispatch={dispatchRightPanel}
+                          detectedPort={3000}
+                          cwd={sidebarCwd}
+                          activeSessionId={activeSessionId}
+                          activeSessionLinkedWorkItem={activeSessionLinkedWorkItem}
+                          onSetLinkedWorkItem={handleSetSessionLinkedWorkItem}
+                          linkedSessions={workspaceLinkedSessions}
+                          onOpenSession={onSelectHistorySession}
+                          onOpenProjectTerminal={onToggleProjectTerminal}
+                          onOpenProjectDiff={onToggleChanges}
+                          onOpenProjectFiles={onGoToFile}
+                          onOpenFile={onOpenFile}
+                        />
+                      ) : null}
                       {[...linkedWorkItemPanels.values()].map((panel) => (
                         <LinkedWorkItemPanel
                           repairSessions={repairSessions}

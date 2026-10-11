@@ -121,6 +121,7 @@ import type { HostSession } from "../../connections/model/protocol";
 
 export type SessionPaneProps = {
   session: Session;
+  suppressBackground?: boolean;
   workspaceSwitchingSessionId?: string;
   reviewUndoLocked?: boolean;
   visible: boolean;
@@ -292,6 +293,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
   remoteSessionStarted = false,
   allowedModelHarnesses,
   session,
+  suppressBackground = false,
   workspaceSwitchingSessionId,
   reviewUndoLocked = false,
   visible,
@@ -777,20 +779,21 @@ const LocalSessionPane = memo(function LocalSessionPane({
     <div
       data-session-drop={session.id}
       data-session-empty={isEmpty}
-      data-project-chat-background={!!projectBackground}
-      data-project-background-effect={projectBackground?.effect}
-      data-project-background-scope={projectBackground?.scope}
-      style={projectBackgroundStyle}
+      data-project-chat-background={!suppressBackground && !!projectBackground}
+      data-project-background-effect={suppressBackground ? undefined : projectBackground?.effect}
+      data-project-background-scope={suppressBackground ? undefined : projectBackground?.scope}
+      style={suppressBackground ? undefined : projectBackgroundStyle}
       className={`${
-        agent && !projectBackground ? "" : "chat-pane-background "
+        (agent && !projectBackground) || suppressBackground ? "" : "chat-pane-background "
       }relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col`}
       onMouseDown={() => onFocus(session.id)}
     >
-      {projectBackground?.effect === "gradient-blur" ||
-      (!agent &&
-        !projectBackground &&
-        globalBackgroundPath &&
-        globalBackgroundEffect === "gradient-blur") ? (
+      {!suppressBackground &&
+      (projectBackground?.effect === "gradient-blur" ||
+        (!agent &&
+          !projectBackground &&
+          globalBackgroundPath &&
+          globalBackgroundEffect === "gradient-blur")) ? (
         <GradientBlurBackground />
       ) : null}
       {modelWelcome && visible ? (

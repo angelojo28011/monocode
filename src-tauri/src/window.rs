@@ -78,6 +78,8 @@ fn configure_session_window(config: &mut tauri::utils::config::WindowConfig, rev
 }
 
 pub fn open_session_window(app: &AppHandle, reveal: bool) -> Result<WebviewWindow, String> {
+
+
     let mut config = app
         .config()
         .app
@@ -109,6 +111,9 @@ pub fn open_session_window(app: &AppHandle, reveal: bool) -> Result<WebviewWindo
     };
     #[cfg(not(target_os = "macos"))]
     let window = build()?;
+
+
+
 
     #[cfg(target_os = "macos")]
     crate::macos::install(&window);
