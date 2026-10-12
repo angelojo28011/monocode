@@ -210,7 +210,7 @@ export function RightPanelContainer({
     <aside
       aria-label="Right Panel Surfaces"
       style={isFullscreen ? undefined : { width: state.width }}
-      className={`relative z-20 flex min-h-0 flex-col text-content select-none overflow-hidden bg-background-base/25 backdrop-blur-md ${
+      className={`relative z-20 flex min-h-0 flex-col text-content select-none overflow-hidden bg-transparent ${
         isFullscreen
           ? "absolute inset-0 z-40 w-full h-full"
           : "h-full border-l border-stroke/40 shrink-0"
@@ -229,7 +229,7 @@ export function RightPanelContainer({
       ) : null}
 
       {/* Header superior: Pestañas + Controles */}
-      <div className="relative z-10 flex h-10 w-full shrink-0 items-center justify-between border-b border-stroke bg-white/[0.03] px-2 backdrop-blur-md">
+      <div className="relative z-10 flex h-10 w-full shrink-0 items-center justify-between border-b border-stroke/40 bg-white/[0.02] px-2">
         {/* Lista de Pestañas */}
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none pr-2">
           {state.tabs.map((tab) => {
