@@ -57,6 +57,7 @@ const DEFAULT_SUGGESTIONS: SuggestedItem[] = [
 
 export function BrowserHomeView({ onOpenSurface, onNavigate, detectedPort }: Props) {
   const [searchInput, setSearchInput] = useState("");
+  const [inputError, setInputError] = useState("");
   const [suggestions, setSuggestions] = useState<SuggestedItem[]>(DEFAULT_SUGGESTIONS);
 
   useEffect(() => {
@@ -75,10 +76,11 @@ export function BrowserHomeView({ onOpenSurface, onNavigate, detectedPort }: Pro
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const normalized = normalizeBrowserUrl(searchInput);
-    if (normalized) {
-      onNavigate(normalized);
-    }
+    try {
+      const normalized = normalizeBrowserUrl(searchInput);
+      setInputError("");
+      if (normalized) onNavigate(normalized);
+    } catch (error) { setInputError(String(error)); }
   };
 
   return (
@@ -97,6 +99,7 @@ export function BrowserHomeView({ onOpenSurface, onNavigate, detectedPort }: Pro
           </div>
 
           <form onSubmit={handleSearchSubmit} className="w-full mt-1">
+            {inputError && <p role="alert" className="text-xs text-content">Solo se admiten direcciones HTTP/HTTPS.</p>}
             <div className="relative flex w-full items-center">
               <Search className="pointer-events-none absolute left-3.5 size-4 text-content/40" />
               <input

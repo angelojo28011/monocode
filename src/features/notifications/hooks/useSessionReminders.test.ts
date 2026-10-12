@@ -339,4 +339,31 @@ describe("saved session reminders", () => {
     expect(listeners.get(REMINDER_OPEN)?.size).toBe(0);
     root = createRoot(container);
   });
+
+  it("retries silently after a transient startup error and resolves without showing an error banner", async () => {
+    let callCount = 0;
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "reminder_list") {
+        callCount++;
+        if (callCount === 1) {
+          throw new Error("Session store is locked");
+        }
+        return stored.map((item) => ({ ...item }));
+      }
+    });
+    vi.useFakeTimers();
+    await act(async () => {
+      root.render(createElement(Harness));
+    });
+    // First attempt failed, but silent retry is scheduled
+    expect(api.error).toBeNull();
+    // Advance timers for retry
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(callCount).toBeGreaterThanOrEqual(2);
+    expect(api.error).toBeNull();
+    expect(api.reminders).toEqual([reminder]);
+    vi.useRealTimers();
+  });
 });

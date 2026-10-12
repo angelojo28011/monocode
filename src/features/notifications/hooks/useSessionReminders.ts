@@ -36,6 +36,7 @@ export function useSessionReminders(
   const revision = useRef(0);
   const configurationRevision = useRef(0);
   const configurationQueue = useRef<Promise<void>>(Promise.resolve());
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remindersRef = useRef(reminders);
   remindersRef.current = reminders;
   const callbacks = useRef({ onOpenSession, ensureSaved });
@@ -77,20 +78,34 @@ export function useSessionReminders(
     }
   }, []);
 
-  const refresh = useCallback(async () => {
-    const request = ++revision.current;
-    try {
-      const items = await listReminders();
-      if (request !== revision.current) return;
-      remindersRef.current = items;
-      setItems(items);
-      setNow(Date.now());
-      setError(null);
-      await configure();
-    } catch (error) {
-      if (request === revision.current) setError(String(error));
-    }
-  }, [configure]);
+  const refresh = useCallback(
+    async (retriesLeft = 2) => {
+      const request = ++revision.current;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      try {
+        const items = await listReminders();
+        if (request !== revision.current) return;
+        remindersRef.current = items;
+        setItems(items);
+        setNow(Date.now());
+        setError(null);
+        await configure();
+      } catch (error) {
+        if (request !== revision.current) return;
+        if (retriesLeft > 0) {
+          retryTimerRef.current = setTimeout(() => {
+            void refresh(retriesLeft - 1);
+          }, 400);
+          return;
+        }
+        setError(String(error));
+      }
+    },
+    [configure],
+  );
 
   const report = (error: unknown) => {
     void message(String(error), { title: "Reminder", kind: "error" });
@@ -163,7 +178,7 @@ export function useSessionReminders(
         );
         if (request && !disposed) await openHere(request);
       } catch (error) {
-        if (!disposed) setError(String(error));
+        console.warn("[reminders] reminder_take_open:", error);
       }
     };
     const subscribe = async (event: string, handler: () => void) => {
@@ -185,7 +200,7 @@ export function useSessionReminders(
         await refresh();
         await takeOpen();
       } catch (error) {
-        if (!disposed) setError(String(error));
+        console.warn("[reminders] subscription init:", error);
       }
     })();
     const onFocus = () => {
@@ -209,6 +224,10 @@ export function useSessionReminders(
       subscribeNotificationPreferences(configureCurrent);
     return () => {
       disposed = true;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       unsubscribePreferences();
       revision.current++;
       configurationRevision.current++;
@@ -226,7 +245,7 @@ export function useSessionReminders(
   useEffect(() => {
     void invoke("reminder_register_window", {
       sessionIds: JSON.parse(sessionIdsKey),
-    }).catch((error) => setError(String(error)));
+    }).catch((error) => console.warn("[reminders] reminder_register_window:", error));
   }, [sessionIdsKey]);
 
   const open = useCallback(async (reminder: ReminderTarget) => {

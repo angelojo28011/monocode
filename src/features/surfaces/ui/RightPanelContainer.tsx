@@ -26,9 +26,10 @@ import {
   type SurfaceType,
 } from "../model/rightPanel";
 import { BrowserSurface } from "./BrowserSurface";
-import { hideBrowser } from "../../../platform/tauri/browser";
+import { closeBrowser, hideBrowser, listenBrowserNavigation } from "../../../platform/tauri/browser";
 import { DeviceSurface } from "./DeviceSurface";
 import { OpenSurfaceView } from "./OpenSurfaceView";
+import { canHandleRightPanelShortcut, hasVisibleRightPanelOverlay, observeRightPanelOverlays } from "./rightPanelShortcut";
 import { TerminalView } from "../../terminal/ui/TerminalView";
 import { FilesSurface } from "./FilesSurface";
 import { DiffSurface } from "./DiffSurface";
@@ -90,6 +91,26 @@ export function RightPanelContainer({
   onOpenFile,
 }: Props) {
   const plusButtonRef = useRef<HTMLButtonElement>(null);
+  const observationOwner = useRef({ tabs: state.tabs, dispatch });
+  observationOwner.current = { tabs: state.tabs, dispatch };
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe: (() => void) | undefined;
+    void listenBrowserNavigation(event => {
+      if (disposed) return;
+      const owner = observationOwner.current;
+      if (!owner.tabs.some(tab => tab.id === event.tabId && (tab.type === "browser" || tab.type === "device"))) return;
+      owner.dispatch({ type: "native_observation", tabId: event.tabId, url: event.url, title: event.title ?? undefined, loading: event.loading, kind: event.kind, canGoBack: event.canGoBack, canGoForward: event.canGoForward });
+    }).then(stop => { if (disposed) stop(); else unsubscribe = stop; }).catch(console.error);
+    return () => { disposed = true; unsubscribe?.(); };
+  }, []);
+  const [browserBlocked, setBrowserBlocked] = useState(hasVisibleRightPanelOverlay);
+  useEffect(() => {
+    if (!state.isOpen) return;
+    return observeRightPanelOverlays(setBrowserBlocked);
+  }, [state.isOpen]);
+  const nativeTabs = useRef<string[]>([]);
+  const previousNativeTab = useRef<string | undefined>(undefined);
 
   // Resizing state & refs
   const [isResizing, setIsResizing] = useState(false);
@@ -129,10 +150,43 @@ export function RightPanelContainer({
   const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId) ?? state.tabs[0];
 
   useEffect(() => {
-    if (!state.isOpen || activeTab?.type !== "browser") {
-      void hideBrowser();
+    const current = state.isOpen && (activeTab?.type === "browser" || activeTab?.type === "device") ? activeTab.id : undefined;
+    if (!current) void Promise.resolve(hideBrowser()).catch(console.error);
+    else if (previousNativeTab.current && previousNativeTab.current !== current) {
+      void Promise.resolve(hideBrowser(previousNativeTab.current)).catch(console.error);
     }
-  }, [state.isOpen, activeTab?.type]);
+    previousNativeTab.current = current;
+  }, [state.isOpen, activeTab?.id, activeTab?.type]);
+
+  useEffect(() => {
+    const current = state.tabs.filter(tab => tab.type === "browser" || tab.type === "device").map(tab => tab.id);
+    for (const removed of nativeTabs.current.filter(id => !current.includes(id))) {
+      void closeBrowser(removed).catch(console.error);
+    }
+    nativeTabs.current = current;
+  }, [state.tabs]);
+
+  useEffect(() => () => { void Promise.resolve(hideBrowser()).catch(console.error); }, []);
+
+  useEffect(() => {
+    if (!state.isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "b" || !canHandleRightPanelShortcut(event)) return;
+      event.preventDefault();
+      const browserTab = activeTab?.type === "browser"
+        ? activeTab
+        : state.tabs.find((tab) => tab.type === "browser");
+      if (browserTab) {
+        dispatch({ type: "select_tab", tabId: browserTab.id });
+      } else if (activeTab?.type === "picker") {
+        dispatch({ type: "replace_tab_surface", tabId: activeTab.id, surfaceType: "browser" });
+      } else {
+        dispatch({ type: "open_surface", surfaceType: "browser" });
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [state.isOpen, state.tabs, activeTab, dispatch]);
 
   if (!state.isOpen) return null;
 
@@ -297,6 +351,8 @@ export function RightPanelContainer({
         {activeTab && activeTab.type === "browser" ? (
           <BrowserSurface
             tab={activeTab}
+            blocked={browserBlocked}
+            onNativeNavigate={() => { /* The panel owner records every tab's observations. */ }}
             onNavigate={(tabId, url, title) =>
               dispatch({ type: "navigate", tabId, url, title })
             }
@@ -312,6 +368,8 @@ export function RightPanelContainer({
         {activeTab && activeTab.type === "device" ? (
           <DeviceSurface
             tab={activeTab}
+            blocked={browserBlocked}
+            onNativeNavigate={() => { /* The panel owner records every tab's observations. */ }}
             onNavigate={(tabId, url, title) =>
               dispatch({ type: "navigate", tabId, url, title })
             }

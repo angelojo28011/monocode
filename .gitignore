@@ -58,3 +58,8 @@ Desktop.ini
 
 # Local document preview mockup
 /work/mono-document-preview.html
+
+# Local indexing & ODD tasks
+.codegraph/
+odd/
+

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   DEVICE_PRESETS,
   type DevicePreset,
@@ -16,6 +16,8 @@ interface Props {
   onOpenSurface: (surfaceType: SurfaceType) => void;
   onSetPreset: (tabId: string, preset: DevicePreset) => void;
   detectedPort?: number;
+  blocked?: boolean;
+  onNativeNavigate?: (tabId: string, url: string, loading: boolean, title?: string) => void;
 }
 
 export function DeviceSurface({
@@ -27,10 +29,13 @@ export function DeviceSurface({
   onOpenSurface,
   onSetPreset,
   detectedPort,
+  blocked,
+  onNativeNavigate,
 }: Props) {
   const currentPreset = tab.devicePreset ?? "iphone-15";
   const dimensions = DEVICE_PRESETS[currentPreset];
   const [scale, setScale] = useState(0.85);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   return (
     <div className="flex h-full w-full flex-col bg-background-base overflow-hidden">
@@ -72,7 +77,7 @@ export function DeviceSurface({
       </div>
 
       {/* Canvas con marco de smartphone */}
-      <div className="relative flex flex-1 items-center justify-center overflow-auto p-6 bg-black/20">
+      <div ref={canvasRef} data-browser-clip className="relative flex flex-1 min-h-0 items-center justify-center overflow-auto p-6 bg-black/20">
         <div
           style={{
             width: dimensions.width,
@@ -87,9 +92,13 @@ export function DeviceSurface({
             <div className="size-2.5 rounded-full bg-neutral-900 ring-1 ring-neutral-800" />
           </div>
 
-          <div className="flex-1 w-full pt-4 flex flex-col overflow-hidden">
+          <div className="flex-1 min-h-0 w-full pt-4 pb-3 flex flex-col overflow-hidden">
             <BrowserSurface
               tab={tab}
+              blocked={blocked}
+              clipRef={canvasRef}
+              geometryKey={`${currentPreset}:${scale}`}
+              onNativeNavigate={onNativeNavigate}
               onNavigate={onNavigate}
               onGoBack={onGoBack}
               onGoForward={onGoForward}

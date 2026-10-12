@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { canHandleRightPanelShortcut } from "./rightPanelShortcut";
 import {
   ChevronDown,
   ExternalLink,
@@ -42,17 +43,9 @@ function surfaceIcon(type: SurfaceType) {
 export function OpenSurfaceView({ onSelect }: Props) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey) return;
-      const target = event.target as HTMLElement | null;
-      if (
-        target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.isContentEditable
-      ) {
-        return;
-      }
-
       const key = event.key.toUpperCase();
+      // B belongs to the open panel lifecycle, not this picker.
+      if (key === "B" || !canHandleRightPanelShortcut(event, true)) return;
       const match = SURFACE_DEFINITIONS.find((def) => def.shortcutKey === key);
       if (match) {
         event.preventDefault();

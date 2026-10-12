@@ -11,6 +11,123 @@ import {
 } from "./rightPanel";
 
 describe("rightPanel model & reducer", () => {
+  it("completes an explicit redirect returning to its departure after target loading", () => {
+    const a = "https://example.com/a", r = "https://example.com/redirect";
+    const tab = createRightPanelTab("browser", a);
+    let state = { ...createInitialRightPanelState(), tabs: [tab], activeTabId: tab.id };
+    state = rightPanelReducer(state, { type: "navigate", tabId: tab.id, url: r });
+    const observe = (url: string, loading: boolean) => {
+      state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url, kind: "load", loading });
+    };
+    const requested = state;
+    observe(a, false);
+    expect(state).toEqual(requested);
+    observe(r, true);
+    expect(state.tabs[0]).toMatchObject({ url: r, history: [a, r], historyIndex: 1, isLoading: true });
+    const loading = state;
+    observe(a, true);
+    expect(state).toEqual(loading);
+    observe(a, false);
+    expect(state.tabs[0]).toMatchObject({ url: a, history: [a, a], historyIndex: 1, isLoading: false });
+    expect(state.tabs[0].nativePending).toBeUndefined();
+  });
+  it("redirect/load/title observations preserve native Back and Forward history", () => {
+    const first = "http://localhost:5173/first";
+    const second = "http://localhost:5173/second";
+    const tab = createRightPanelTab("browser", first);
+    let state = { ...createInitialRightPanelState(), tabs: [tab], activeTabId: tab.id };
+    const observe = (url: string, kind: "navigation" | "load" | "title", loading: boolean | null, title?: string) => {
+      state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url, kind, loading, title });
+    };
+    observe("http://localhost:5173/redirect", "navigation", null);
+    observe(second, "load", true);
+    observe(second, "title", null, "Second");
+    observe(second, "load", false);
+    state = rightPanelReducer(state, { type: "go_back", tabId: tab.id });
+    // Delayed departure callbacks must not branch or destroy the forward document.
+    observe(second, "title", null, "Late second title");
+    observe(second, "load", false);
+    observe(first, "navigation", null);
+    observe(first, "load", true);
+    observe(first, "load", false);
+    observe(first, "title", null, "First");
+    state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url: first, kind: "load", loading: false, canGoForward: true });
+    state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url: second, kind: "title", loading: null, title: "Stale native availability", canGoForward: false });
+    state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url: second, kind: "load", loading: false, canGoForward: false });
+    observe(second, "title", null, "Departed title after completion");
+    observe(second, "load", false);
+    expect(state.tabs[0].history).toEqual([first, second]);
+    expect(state.tabs[0].historyIndex).toBe(0);
+    expect(state.tabs[0].title).toBe("First");
+    expect(state.tabs[0].nativeCanGoForward).toBe(true);
+    state = rightPanelReducer(state, { type: "go_forward", tabId: tab.id });
+    observe(first, "title", null, "Late first title");
+    observe(second, "navigation", null);
+    observe(second, "load", true);
+    observe(second, "load", false);
+    expect(state.tabs[0].history).toEqual([first, second]);
+    expect(state.tabs[0].historyIndex).toBe(1);
+    expect(state.tabs[0].navigationToken).toBeUndefined();
+    expect(state.tabs[0].reloadToken).toBe(0);
+  });
+  it("explicit navigation replaces its provisional redirect entry and alone branches history", () => {
+    const tab = createRightPanelTab("browser", "https://example.com/first");
+    let state = { ...createInitialRightPanelState(), tabs: [tab] };
+    state = rightPanelReducer(state, { type: "navigate", tabId: tab.id, url: "https://example.com/redirect" });
+    state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url: "https://example.com/second", kind: "load", loading: false });
+    expect(state.tabs[0].history).toEqual(["https://example.com/first", "https://example.com/second"]);
+    state = rightPanelReducer(state, { type: "go_back", tabId: tab.id });
+    state = rightPanelReducer(state, { type: "navigate", tabId: tab.id, url: "https://example.com/third" });
+    expect(state.tabs[0].history).toEqual(["https://example.com/first", "https://example.com/third"]);
+    expect(state.tabs[0].navigationToken).toBe(2);
+  });
+
+  it("observed same-document fragment traversal preserves both history directions without load callbacks", () => {
+    const base = "https://example.com/page";
+    const tab = createRightPanelTab("browser", base);
+    tab.nativeCanGoBack = false;
+    tab.nativeCanGoForward = false;
+    let state = { ...createInitialRightPanelState(), tabs: [tab] };
+    state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url: `${base}#section`, kind: "navigation", loading: null });
+    expect(state.tabs[0].history).toEqual([base, `${base}#section`]);
+    state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url: `${base}#section`, kind: "title", title: "Section", canGoBack: true, canGoForward: false });
+    state = rightPanelReducer(state, { type: "go_back", tabId: tab.id });
+    state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url: base, kind: "navigation", loading: null });
+    expect(state.tabs[0].historyIndex).toBe(0);
+    expect(state.tabs[0].nativeCanGoForward).toBeUndefined();
+    expect(state.tabs[0].history).toEqual([base, `${base}#section`]);
+    state = rightPanelReducer(state, { type: "go_forward", tabId: tab.id });
+    state = rightPanelReducer(state, { type: "native_observation", tabId: tab.id, url: `${base}#section`, kind: "navigation", loading: null });
+    expect(state.tabs[0].historyIndex).toBe(1);
+    expect(state.tabs[0].navigationToken).toBeUndefined();
+  });
+
+  it("native observations update exact hidden tabs without becoming navigation requests", () => {
+    const first = createRightPanelTab("browser", "https://example.com");
+    const second = createRightPanelTab("device", "https://device.example.com");
+    const state = { ...createInitialRightPanelState(), tabs: [first, second], activeTabId: second.id };
+    const next = rightPanelReducer(state, { type: "native_observation", tabId: first.id, url: "https://redirect.example.com", title: "Redirected", loading: false });
+    expect(next.tabs[0]).toMatchObject({ url: "https://redirect.example.com", title: "Redirected", nativeObserved: true, isLoading: false, reloadToken: 0 });
+    expect(next.tabs[0].navigationToken).toBeUndefined();
+    expect(next.tabs[1]).toEqual(second);
+    expect(next.activeTabId).toBe(second.id);
+    const requested = rightPanelReducer(next, { type: "navigate", tabId: first.id, url: "https://requested.example.com" });
+    expect(requested.tabs[0].navigationToken).toBe(1);
+    const back = rightPanelReducer(requested, { type: "go_back", tabId: first.id });
+    const observed = rightPanelReducer(back, { type: "native_observation", tabId: first.id, url: back.tabs[0].url!, loading: false });
+    expect(observed.tabs[0].navigationToken).toBe(1);
+    expect(observed.tabs[0].history).toEqual(back.tabs[0].history);
+    expect(observed.tabs[0].historyIndex).toBe(back.tabs[0].historyIndex);
+  });
+  it("repeated native observations update titles without duplicating URL history", () => {
+    const tab = createRightPanelTab("browser", "https://example.com");
+    const state = { ...createInitialRightPanelState(), tabs: [tab], activeTabId: tab.id };
+    const next = rightPanelReducer(state, { type: "navigate", tabId: tab.id, url: tab.url!, title: "Example" });
+    expect(next.tabs[0].history).toEqual(tab.history);
+    expect(next.tabs[0].historyIndex).toBe(0);
+    expect(next.tabs[0].title).toBe("Example");
+    expect(next.tabs[0].reloadToken).toBe(0);
+  });
   it("initializes with closed dock state and empty tabs", () => {
     const state = createInitialRightPanelState();
     expect(state.isOpen).toBe(false);

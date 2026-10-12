@@ -41,6 +41,7 @@ export function BrowserToolbar({
 }: Props) {
   const [inputUrl, setInputUrl] = useState(url);
   const [isFocused, setIsFocused] = useState(false);
+  const [inputError, setInputError] = useState("");
 
   useEffect(() => {
     setInputUrl(url);
@@ -48,9 +49,12 @@ export function BrowserToolbar({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const normalized = normalizeBrowserUrl(inputUrl);
-    if (!normalized) return;
-    onNavigate(normalized);
+    try {
+      const normalized = normalizeBrowserUrl(inputUrl);
+      if (!normalized) return;
+      setInputError("");
+      onNavigate(normalized);
+    } catch (error) { setInputError(String(error)); }
   };
 
   const handleOpenExternal = () => {
@@ -130,6 +134,7 @@ export function BrowserToolbar({
 
       {/* Centro: Cápsula de URL / Buscador (Pill shape centrada estilo Codex) */}
       <form onSubmit={handleSubmit} className="flex min-w-0 max-w-xl flex-1 items-center px-1">
+        {inputError && <span role="alert" className="text-xs text-content" title={inputError}>Solo HTTP/HTTPS</span>}
         <div className="relative flex w-full items-center">
           <input
             type="text"
@@ -166,7 +171,7 @@ export function BrowserToolbar({
             type="button"
             onClick={onToggleDeviceMode}
             aria-label="Alternar modo Device"
-            title="Alternar emulación de dispositivo móvil"
+            title="Alternar vista de tamaño de dispositivo (sin emulación)"
             className={`flex size-7 items-center justify-center rounded-md transition-colors ${
               isDeviceMode
                 ? "bg-accent/20 text-accent"
